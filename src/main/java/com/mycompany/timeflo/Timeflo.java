@@ -11,6 +11,7 @@ package com.mycompany.timeflo;
 public class Timeflo {
 
     public static void main(String[] args) {
-        
+        HomeWin win = new HomeWin();
+        win.setVisible(true);
     }
 }

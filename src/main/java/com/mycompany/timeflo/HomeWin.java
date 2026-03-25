@@ -4,10 +4,13 @@
  */
 package com.mycompany.timeflo;
 
+import com.mycompany.timeflo.model.YouTubeVideo;
+import com.mycompany.timeflo.service.YouTubeClient;
 import javax.swing.DefaultListModel;
 import javax.swing.JPanel;
 import javax.swing.JLabel;
 import javax.swing.JTextField;
+import javax.swing.JComboBox;
 import javax.swing.BoxLayout;
 import javax.swing.JOptionPane;
 import java.awt.Desktop;
@@ -17,6 +20,13 @@ import javax.swing.JScrollPane;
 import javax.swing.JList;
 import javax.swing.SwingWorker;
 import java.util.prefs.Preferences;
+import com.mycompany.timeflo.manager.TaskManager;
+import com.mycompany.timeflo.model.Task;
+import com.mycompany.timeflo.manager.ScheduleManager;
+import com.mycompany.timeflo.model.ScheduleItem;
+import com.mycompany.timeflo.manager.RecipeManager;
+import com.mycompany.timeflo.model.Recipe;
+
 /**
  *
  * @author theri
@@ -28,18 +38,22 @@ public class HomeWin extends javax.swing.JFrame {
     private DefaultListModel<String> dlmRecipeNames;
     private DefaultListModel<String> dlmRecipeIngredients;
     private DefaultListModel<String> dlmTasks;
+    private TaskManager taskManager;
+    private ScheduleManager scheduleManager;
+    private RecipeManager recipeManager;
     private final YouTubeClient youtubeClient = new YouTubeClient();
     private String apiKey;
     private Preferences pref;
     private static final String PREF_KEY_FOR_APIKEY = "TIMEFLO_YOUTUBE_API_KEY";
     
     private void showSchedulePopup(){
-        JTextField timeField = new JTextField(10);
+        String[] times = {"8:00", "9:00", "10:00", "11:00", "12:00", "1:00", "2:00", "3:00", "4:00", "5:00", "6:00", "7:00", "8:00"};
+        JComboBox<String> timeBox = new JComboBox<>(times);
         JTextField eventField = new JTextField(25);
         JPanel panel = new JPanel();
         panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
-        panel.add(new JLabel("Enter Time:"));
-        panel.add(timeField);
+        panel.add(new JLabel("Select Time:"));
+        panel.add(timeBox);
         panel.add(new JLabel("Enter Event:"));
         panel.add(eventField);
         int result = JOptionPane.showConfirmDialog(
@@ -50,8 +64,17 @@ public class HomeWin extends javax.swing.JFrame {
             JOptionPane.PLAIN_MESSAGE
             );
         if (result == JOptionPane.OK_OPTION){
-            dlmScheduleTimes.addElement(timeField.getText());
-            dlmScheduleEvents.addElement(eventField.getText());
+            String time = (String) timeBox.getSelectedItem();
+            String eventName = eventField.getText().trim();
+            if (!eventName.isEmpty()){
+                boolean updated = scheduleManager.updateScheduleEvent(time, eventName);
+                if(updated){
+                    refreshScheduleList();
+                } else{
+                    JOptionPane.showMessageDialog(this, "That time was not found.");
+                }
+            } 
+           
         }
     }
     private void showRecipePopup(){
@@ -71,8 +94,12 @@ public class HomeWin extends javax.swing.JFrame {
             JOptionPane.PLAIN_MESSAGE
             );
         if (result == JOptionPane.OK_OPTION){
-            dlmRecipeNames.addElement(nameField.getText());
-            dlmRecipeIngredients.addElement(ingredientsField.getText());
+           String name = nameField.getText().trim();
+           String ingredients = ingredientsField.getText().trim();
+           if(!name.isEmpty() && !ingredients.isEmpty()){
+               recipeManager.addRecipe(name, ingredients);
+               refreshRecipeList();
+           }
         }    
     }
     private void showTaskPopup(){
@@ -86,9 +113,10 @@ public class HomeWin extends javax.swing.JFrame {
                 JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE
         );
         if (result == JOptionPane.OK_OPTION) {
-            String task = taskField.getText().trim();
-            if (!task.isEmpty()){
-                dlmTasks.addElement(task);
+            String taskTitle = taskField.getText().trim();
+            if (!taskTitle.isEmpty()){
+                taskManager.addTask(taskTitle);
+                refreshTaskList();
             }
         }
     }
@@ -166,11 +194,33 @@ public class HomeWin extends javax.swing.JFrame {
                 }
         }
     }
-
-    
+    private void refreshTaskList(){
+        dlmTasks.clear();
+        for (Task task : taskManager.getTasks()){
+            dlmTasks.addElement(task.toString());
+        }
+    }
+    private void refreshScheduleList(){
+        dlmScheduleTimes.clear();
+        dlmScheduleEvents.clear();
+        for (ScheduleItem item : scheduleManager.getScheduleItems()){
+            dlmScheduleTimes.addElement(item.getTime());
+            dlmScheduleEvents.addElement(item.getEventName());
+        }
+    }
+    private void refreshRecipeList(){
+        dlmRecipeNames.clear();
+        dlmRecipeIngredients.clear();
+        for (Recipe recipe : recipeManager.getRecipes()){
+            dlmRecipeNames.addElement(recipe.getName());
+            dlmRecipeIngredients.addElement(recipe.getIngredients());
+        }
+    }
     public HomeWin() {
         initComponents();
-        
+        taskManager = new TaskManager();
+        scheduleManager = new ScheduleManager();
+        recipeManager = new RecipeManager();
         pref = Preferences.userRoot();
         apiKey = pref.get(PREF_KEY_FOR_APIKEY, null);
         if (apiKey == null){
@@ -182,22 +232,23 @@ public class HomeWin extends javax.swing.JFrame {
         dlmScheduleEvents = new DefaultListModel<>();
         String[] times = {"8:00", "9:00","10:00", "11:00","12:00", "1:00", "2:00", "3:00", "4:00", "5:00", "6:00", "7:00", "8:00" };
         for (String t : times){
-            dlmScheduleTimes.addElement(t);
-            dlmScheduleEvents.addElement("");
+            scheduleManager.addScheduleItem(t, "");
         }
+        refreshScheduleList();
         timeJList.setModel(dlmScheduleTimes);
         scheduleJList.setModel(dlmScheduleEvents);
         dlmRecipeNames = new DefaultListModel<>();
         dlmRecipeIngredients = new DefaultListModel<>();
-        dlmRecipeNames.addElement("Recipe 1");
-        dlmRecipeNames.addElement("Recipe 2");
-        dlmRecipeIngredients.addElement("Ingredient A");
-        dlmRecipeIngredients.addElement("Ingredient B");
+        recipeManager.addRecipe("Recipe 1", "Ingredient A");
+        recipeManager.addRecipe("Recipe 2", "Ingredient B");
         recipeNameJList.setModel(dlmRecipeNames);
+        refreshRecipeList();
         recipeIngredientsJList.setModel(dlmRecipeIngredients);
+        
         dlmTasks = new DefaultListModel<>();
-        dlmTasks.addElement("Finish CSC lab");
-        dlmTasks.addElement("Study for quiz");
+        taskManager.addTask("Finish CSC lab");
+        taskManager.addTask("Study for quiz");
+        refreshTaskList();
         jList1.setModel(dlmTasks);
     }
     /**
@@ -561,40 +612,6 @@ public class HomeWin extends javax.swing.JFrame {
         specifyApiKey();
     }//GEN-LAST:event_mnuSpecifyKeyActionPerformed
     
-    /**
-     * @param args the command line arguments
-     */
-    public static void main(String args[]) {
-        /* Set the Nimbus look and feel */
-        //<editor-fold defaultstate="collapsed" desc=" Look and feel setting code (optional) ">
-        /* If Nimbus (introduced in Java SE 6) is not available, stay with the default look and feel.
-         * For details see http://download.oracle.com/javase/tutorial/uiswing/lookandfeel/plaf.html 
-         */
-        try {
-            for (javax.swing.UIManager.LookAndFeelInfo info : javax.swing.UIManager.getInstalledLookAndFeels()) {
-                if ("Nimbus".equals(info.getName())) {
-                    javax.swing.UIManager.setLookAndFeel(info.getClassName());
-                    break;
-                }
-            }
-        } catch (ClassNotFoundException ex) {
-            java.util.logging.Logger.getLogger(HomeWin.class.getName()).log(java.util.logging.Level.SEVERE, null, ex);
-        } catch (InstantiationException ex) {
-            java.util.logging.Logger.getLogger(HomeWin.class.getName()).log(java.util.logging.Level.SEVERE, null, ex);
-        } catch (IllegalAccessException ex) {
-            java.util.logging.Logger.getLogger(HomeWin.class.getName()).log(java.util.logging.Level.SEVERE, null, ex);
-        } catch (javax.swing.UnsupportedLookAndFeelException ex) {
-            java.util.logging.Logger.getLogger(HomeWin.class.getName()).log(java.util.logging.Level.SEVERE, null, ex);
-        }
-        //</editor-fold>
-
-        /* Create and display the form */
-        java.awt.EventQueue.invokeLater(new Runnable() {
-            public void run() {
-                new HomeWin().setVisible(true);
-            }
-        });
-    }
 
     // Variables declaration - do not modify//GEN-BEGIN:variables
     private javax.swing.JButton addBtn;
