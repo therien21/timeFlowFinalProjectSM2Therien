@@ -16,14 +16,19 @@ public class RecipeManager {
     public RecipeManager(){
         recipes = new ArrayList<>();
     }
-    public void addRecipe(String name, String ingredients){
-        recipes.add(new Recipe(name, ingredients));
+    public void addRecipe(String name, String ingredients, String prepTime, String category, String notes){
+        recipes.add(new Recipe(name, ingredients, prepTime, category, notes));
     }
     public void addRecipe(Recipe recipe){
         recipes.add(recipe);
     }
+    public void removeRecipe(Recipe recipe){
+        recipes.remove(recipe);
+    }
     public ArrayList<Recipe> getRecipes(){
         return recipes;
     }
-    
+    public void setRecipes(ArrayList<Recipe> recipes) {
+        this.recipes = recipes;
+    }
 }

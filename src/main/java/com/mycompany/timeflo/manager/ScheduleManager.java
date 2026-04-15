@@ -16,8 +16,8 @@ public class ScheduleManager {
     public ScheduleManager(){
         scheduleItems = new ArrayList<>();
     }  
-    public void addScheduleItem(String time, String eventName){
-        scheduleItems.add(new ScheduleItem(time, eventName));
+    public void addScheduleItem(String time, String eventName, String type, String notes){
+        scheduleItems.add(new ScheduleItem(time, eventName, type, notes));
     }
     public void addScheduleItem(ScheduleItem item){
         scheduleItems.add(item);

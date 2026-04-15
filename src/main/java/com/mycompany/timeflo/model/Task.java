@@ -3,12 +3,12 @@
  * Click nbfs://nbhost/SystemFileSystem/Templates/Classes/Class.java to edit this template
  */
 package com.mycompany.timeflo.model;
-
+import java.io.Serializable;
 /**
  *
  * @author theri
  */
-public class Task {
+public class Task implements Serializable {
    private String title;
    private boolean completed;
    

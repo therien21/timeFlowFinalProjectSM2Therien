@@ -16,6 +16,7 @@ import javax.swing.JOptionPane;
 import java.awt.Desktop;
 import java.net.URI;
 import java.util.List;
+import java.util.ArrayList;
 import javax.swing.JScrollPane;
 import javax.swing.JList;
 import javax.swing.SwingWorker;
@@ -24,8 +25,13 @@ import com.mycompany.timeflo.manager.TaskManager;
 import com.mycompany.timeflo.model.Task;
 import com.mycompany.timeflo.manager.ScheduleManager;
 import com.mycompany.timeflo.model.ScheduleItem;
+import com.mycompany.timeflo.model.ScheduleTableModel;
 import com.mycompany.timeflo.manager.RecipeManager;
+import com.mycompany.timeflo.model.AppData;
+import com.mycompany.timeflo.manager.AppSaveManager;
 import com.mycompany.timeflo.model.Recipe;
+import com.mycompany.timeflo.model.RecipeTableModel;
+
 
 /**
  *
@@ -33,29 +39,39 @@ import com.mycompany.timeflo.model.Recipe;
  */
 public class HomeWin extends javax.swing.JFrame {
 
-    private DefaultListModel<String> dlmScheduleTimes;
-    private DefaultListModel<String> dlmScheduleEvents;
-    private DefaultListModel<String> dlmRecipeNames;
-    private DefaultListModel<String> dlmRecipeIngredients;
+    private ArrayList<ScheduleItem> scheduleItems;
+    private ScheduleTableModel scheduleTableModel;
+    private ArrayList<Recipe> recipeItems;
+    private RecipeTableModel recipeTableModel;
     private DefaultListModel<String> dlmTasks;
     private TaskManager taskManager;
     private ScheduleManager scheduleManager;
     private RecipeManager recipeManager;
+    private AppSaveManager saveManager;
     private final YouTubeClient youtubeClient = new YouTubeClient();
     private String apiKey;
     private Preferences pref;
     private static final String PREF_KEY_FOR_APIKEY = "TIMEFLO_YOUTUBE_API_KEY";
     
     private void showSchedulePopup(){
-        String[] times = {"8:00", "9:00", "10:00", "11:00", "12:00", "1:00", "2:00", "3:00", "4:00", "5:00", "6:00", "7:00", "8:00"};
-        JComboBox<String> timeBox = new JComboBox<>(times);
+        JComboBox<String> timeBox = new JComboBox<>();
+        for (ScheduleItem item : scheduleItems){
+            timeBox.addItem(item.getTime());
+        }
         JTextField eventField = new JTextField(25);
+        JComboBox<String> typeBox = new JComboBox<>(new String[] {
+            "School", "Meal", "Workout", "Personal", "Work", "Open"});
+        JTextField notesField = new JTextField(25);
         JPanel panel = new JPanel();
         panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
         panel.add(new JLabel("Select Time:"));
         panel.add(timeBox);
         panel.add(new JLabel("Enter Event:"));
         panel.add(eventField);
+        panel.add(new JLabel("Enter Type:"));
+        panel.add(typeBox);
+        panel.add(new JLabel("Enter Notes:"));
+        panel.add(notesField);
         int result = JOptionPane.showConfirmDialog(
             this,
             panel,
@@ -64,28 +80,76 @@ public class HomeWin extends javax.swing.JFrame {
             JOptionPane.PLAIN_MESSAGE
             );
         if (result == JOptionPane.OK_OPTION){
-            String time = (String) timeBox.getSelectedItem();
+            int index = timeBox.getSelectedIndex();
             String eventName = eventField.getText().trim();
-            if (!eventName.isEmpty()){
-                boolean updated = scheduleManager.updateScheduleEvent(time, eventName);
-                if(updated){
-                    refreshScheduleList();
-                } else{
-                    JOptionPane.showMessageDialog(this, "That time was not found.");
+            String type  = (String)typeBox.getSelectedItem();
+            String notes = notesField.getText().trim();
+            if ("Meal".equals(type)){
+                if(recipeItems.size() == 0){
+                    JOptionPane.showMessageDialog(this, "No recipes available yet.");
+                    return;
                 }
+                JComboBox<String> recipeBox = new JComboBox<>();
+                for (Recipe recipe : recipeItems){
+                    recipeBox.addItem(recipe.getName());
+                }
+                int recipeResult = JOptionPane.showConfirmDialog(
+                        this,
+                        recipeBox,
+                        "Select a Recipe",
+                        JOptionPane.OK_CANCEL_OPTION,
+                        JOptionPane.PLAIN_MESSAGE
+                );
+                if (recipeResult == JOptionPane.OK_OPTION){
+                    String selectedRecipe = (String) recipeBox.getSelectedItem();
+                    Recipe chosenRecipe = null;
+                    for (Recipe recipe : recipeItems){
+                        if (recipe.getName().equals(selectedRecipe)){
+                            chosenRecipe = recipe;
+                            break;
+                        }
+                    }
+                    if (chosenRecipe != null){
+                        eventName = "Meal: " + chosenRecipe.getName();
+                        if (notes.isEmpty()){
+                            notes = "Prep: " + chosenRecipe.getPrepTime()
+                                    + " | Ingredients: " + chosenRecipe.getIngredients()
+                                    + " | Category: " + chosenRecipe.getCategory();
+                        }    
+                    }
+                } else {
+                    return;
+                }
+            }
+            if (!eventName.isEmpty()){
+                ScheduleItem item = scheduleItems.get(index);
+                item.setEventName(eventName);
+                item.setType(type);
+                item.setNotes(notes);
+                scheduleTableModel.fireTableRowsUpdated(index, index);
+                
             } 
            
         }
     }
     private void showRecipePopup(){
-        JTextField nameField = new JTextField(10);
+        JTextField nameField = new JTextField(20);
         JTextField ingredientsField = new JTextField(25);
+        JTextField prepTimeField = new JTextField(15);
+        JTextField categoryField = new JTextField(15);
+        JTextField notesField = new JTextField(25);
         JPanel panel = new JPanel();
         panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
         panel.add(new JLabel("Recipe Name:"));
         panel.add(nameField);
         panel.add(new JLabel("Ingredients:"));
         panel.add(ingredientsField);
+        panel.add(new JLabel("Prep Time:"));
+        panel.add(prepTimeField);
+        panel.add(new JLabel("Category:"));
+        panel.add(categoryField);
+        panel.add(new JLabel("Notes:"));
+        panel.add(notesField);
         int result = JOptionPane.showConfirmDialog(
             this,
             panel,
@@ -96,8 +160,11 @@ public class HomeWin extends javax.swing.JFrame {
         if (result == JOptionPane.OK_OPTION){
            String name = nameField.getText().trim();
            String ingredients = ingredientsField.getText().trim();
+           String prepTime = prepTimeField.getText().trim();
+           String category = categoryField.getText().trim();
+           String notes = notesField.getText().trim();
            if(!name.isEmpty() && !ingredients.isEmpty()){
-               recipeManager.addRecipe(name, ingredients);
+               recipeManager.addRecipe(name, ingredients, prepTime, category, notes);
                refreshRecipeList();
            }
         }    
@@ -194,6 +261,39 @@ public class HomeWin extends javax.swing.JFrame {
                 }
         }
     }
+    private void saveAppData(){
+        try {
+            AppData data = new AppData(
+                    taskManager.getTasks(),
+                    scheduleItems,
+                    recipeItems
+            );
+            saveManager.saveData(data);
+            JOptionPane.showMessageDialog(this, "Saved!");
+        } catch (Exception ex){
+            JOptionPane.showMessageDialog(this, "Error saving: " + ex.getMessage());
+        }
+    }
+    private void loadAppData(){
+        try {
+        AppData data = saveManager.loadData();
+        taskManager.setTasks(data.getTasks());
+        scheduleItems = data.getScheduleItems();
+        recipeManager.setRecipes(data.getRecipes());
+        recipeItems = recipeManager.getRecipes();
+        recipeTableModel = new RecipeTableModel(recipeItems);
+        recipeTable.setModel(recipeTableModel);
+        scheduleTableModel = new ScheduleTableModel(scheduleItems);
+        jTable1.setModel(scheduleTableModel);
+        refreshTaskList();
+        refreshScheduleList();
+        refreshRecipeList();
+        JOptionPane.showMessageDialog(this, "Loaded!");
+        
+    } catch (Exception ex){
+        JOptionPane.showMessageDialog(this, "Error loading: " + ex.getMessage());
+    }
+}
     private void refreshTaskList(){
         dlmTasks.clear();
         for (Task task : taskManager.getTasks()){
@@ -201,23 +301,14 @@ public class HomeWin extends javax.swing.JFrame {
         }
     }
     private void refreshScheduleList(){
-        dlmScheduleTimes.clear();
-        dlmScheduleEvents.clear();
-        for (ScheduleItem item : scheduleManager.getScheduleItems()){
-            dlmScheduleTimes.addElement(item.getTime());
-            dlmScheduleEvents.addElement(item.getEventName());
-        }
+        scheduleTableModel.fireTableDataChanged();
     }
     private void refreshRecipeList(){
-        dlmRecipeNames.clear();
-        dlmRecipeIngredients.clear();
-        for (Recipe recipe : recipeManager.getRecipes()){
-            dlmRecipeNames.addElement(recipe.getName());
-            dlmRecipeIngredients.addElement(recipe.getIngredients());
-        }
+        recipeTableModel.fireTableDataChanged();    
     }
     public HomeWin() {
         initComponents();
+        saveManager = new AppSaveManager();
         taskManager = new TaskManager();
         scheduleManager = new ScheduleManager();
         recipeManager = new RecipeManager();
@@ -228,23 +319,34 @@ public class HomeWin extends javax.swing.JFrame {
         } else{
             JOptionPane.showMessageDialog(this, "Loaded your API key.");
         }
-        dlmScheduleTimes = new DefaultListModel<>();
-        dlmScheduleEvents = new DefaultListModel<>();
-        String[] times = {"8:00", "9:00","10:00", "11:00","12:00", "1:00", "2:00", "3:00", "4:00", "5:00", "6:00", "7:00", "8:00" };
+        scheduleItems = new ArrayList<>();
+        String[] times = {"8:00", "9:00","10:00","11:00","12:00", "1:00","2:00","3:00","4:00","5:00","6:00","7:00","8:00"};
         for (String t : times){
-            scheduleManager.addScheduleItem(t, "");
+            scheduleItems.add(new ScheduleItem(t, "Empty", "Open", ""));
         }
-        refreshScheduleList();
-        timeJList.setModel(dlmScheduleTimes);
-        scheduleJList.setModel(dlmScheduleEvents);
-        dlmRecipeNames = new DefaultListModel<>();
-        dlmRecipeIngredients = new DefaultListModel<>();
-        recipeManager.addRecipe("Recipe 1", "Ingredient A");
-        recipeManager.addRecipe("Recipe 2", "Ingredient B");
-        recipeNameJList.setModel(dlmRecipeNames);
+        scheduleTableModel = new ScheduleTableModel(scheduleItems);
+        jTable1.setModel(scheduleTableModel);
+        jTable1.setRowHeight(60);
+        jTable1.setFillsViewportHeight(true);
+        jTable1.getColumnModel().getColumn(0).setPreferredWidth(70); //Time
+        jTable1.getColumnModel().getColumn(1).setPreferredWidth(140); //Event
+        jTable1.getColumnModel().getColumn(2).setPreferredWidth(90); //Type
+        jTable1.getColumnModel().getColumn(3).setPreferredWidth(180); //Notes
+        recipeItems = recipeManager.getRecipes();
+        recipeManager.addRecipe("Chicken Bowl", "Chicken, rice, spinach", "20 min", "Dinner", "High protein");
+        recipeManager.addRecipe("Oatmeal", "Oats, banana, peanut butter", "5 min", "Breakfast", "Quick meal");
+        recipeTableModel = new RecipeTableModel(recipeItems);
+        recipeTable.setModel(recipeTableModel);
         refreshRecipeList();
-        recipeIngredientsJList.setModel(dlmRecipeIngredients);
-        
+        recipeTable.setRowHeight(60);
+        recipeTable.setFillsViewportHeight(true);
+        recipeTable.getColumnModel().getColumn(0).setPreferredWidth(110);
+        recipeTable.getColumnModel().getColumn(1).setPreferredWidth(180);
+        recipeTable.getColumnModel().getColumn(2).setPreferredWidth(70);
+        recipeTable.getColumnModel().getColumn(3).setPreferredWidth(90);
+        recipeTable.getColumnModel().getColumn(4).setPreferredWidth(140);
+        recipeTable.getTableHeader().setReorderingAllowed(false);
+
         dlmTasks = new DefaultListModel<>();
         taskManager.addTask("Finish CSC lab");
         taskManager.addTask("Study for quiz");
@@ -260,6 +362,7 @@ public class HomeWin extends javax.swing.JFrame {
     // <editor-fold defaultstate="collapsed" desc="Generated Code">//GEN-BEGIN:initComponents
     private void initComponents() {
 
+        jMenuItem1 = new javax.swing.JMenuItem();
         jPanel3 = new javax.swing.JPanel();
         jPanel2 = new javax.swing.JPanel();
         jPanel1 = new javax.swing.JPanel();
@@ -273,24 +376,24 @@ public class HomeWin extends javax.swing.JFrame {
         schedulePanel = new javax.swing.JPanel();
         dayViewPanel = new javax.swing.JPanel();
         weekViewLbl = new javax.swing.JLabel();
-        jScrollPane4 = new javax.swing.JScrollPane();
-        scheduleJList = new javax.swing.JList<>();
-        jScrollPane3 = new javax.swing.JScrollPane();
-        timeJList = new javax.swing.JList<>();
+        jScrollPane6 = new javax.swing.JScrollPane();
+        jTable1 = new javax.swing.JTable();
         recipesPanel = new javax.swing.JPanel();
         jScrollPane1 = new javax.swing.JScrollPane();
-        recipeNameJList = new javax.swing.JList<>();
-        jScrollPane2 = new javax.swing.JScrollPane();
-        recipeIngredientsJList = new javax.swing.JList<>();
+        recipeTable = new javax.swing.JTable();
         learnPanel = new javax.swing.JPanel();
         questionTab = new javax.swing.JLabel();
         programmingBtn = new javax.swing.JButton();
         snowboardingBtn = new javax.swing.JButton();
         financeBtn = new javax.swing.JButton();
         jMenuBar1 = new javax.swing.JMenuBar();
-        jMenu1 = new javax.swing.JMenu();
-        jMenu2 = new javax.swing.JMenu();
+        apiKeyBtn = new javax.swing.JMenu();
         mnuSpecifyKey = new javax.swing.JMenuItem();
+        dataMenu = new javax.swing.JMenu();
+        SaveMenuItem = new javax.swing.JMenuItem();
+        loadMenuItem = new javax.swing.JMenuItem();
+
+        jMenuItem1.setText("jMenuItem1");
 
         setDefaultCloseOperation(javax.swing.WindowConstants.EXIT_ON_CLOSE);
 
@@ -312,7 +415,7 @@ public class HomeWin extends javax.swing.JFrame {
             jPanel1Layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
             .addGroup(jPanel1Layout.createSequentialGroup()
                 .addComponent(jLabel1, javax.swing.GroupLayout.PREFERRED_SIZE, 182, javax.swing.GroupLayout.PREFERRED_SIZE)
-                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
+                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED, 173, Short.MAX_VALUE)
                 .addComponent(addBtn, javax.swing.GroupLayout.PREFERRED_SIZE, 100, javax.swing.GroupLayout.PREFERRED_SIZE)
                 .addContainerGap())
         );
@@ -381,79 +484,68 @@ public class HomeWin extends javax.swing.JFrame {
                 .addContainerGap())
         );
 
-        scheduleJList.setModel(new javax.swing.AbstractListModel<String>() {
-            String[] strings = { "Item 1", "Item 2", "Item 3", "Item 4", "Item 5" };
-            public int getSize() { return strings.length; }
-            public String getElementAt(int i) { return strings[i]; }
-        });
-        jScrollPane4.setViewportView(scheduleJList);
-
-        timeJList.setModel(new javax.swing.AbstractListModel<String>() {
-            String[] strings = { "8:00", "9:00", "10:00", "11:00", "12:00", "1:00", "2:00", "3:00", "4:00", "5:00", "6:00", "7:00", "8:00" };
-            public int getSize() { return strings.length; }
-            public String getElementAt(int i) { return strings[i]; }
-        });
-        jScrollPane3.setViewportView(timeJList);
+        jTable1.setModel(new javax.swing.table.DefaultTableModel(
+            new Object [][] {
+                {null, null, null, null},
+                {null, null, null, null},
+                {null, null, null, null},
+                {null, null, null, null}
+            },
+            new String [] {
+                "Title 1", "Title 2", "Title 3", "Title 4"
+            }
+        ));
+        jScrollPane6.setViewportView(jTable1);
 
         javax.swing.GroupLayout schedulePanelLayout = new javax.swing.GroupLayout(schedulePanel);
         schedulePanel.setLayout(schedulePanelLayout);
         schedulePanelLayout.setHorizontalGroup(
             schedulePanelLayout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
             .addGroup(schedulePanelLayout.createSequentialGroup()
-                .addContainerGap()
-                .addComponent(jScrollPane3, javax.swing.GroupLayout.PREFERRED_SIZE, 82, javax.swing.GroupLayout.PREFERRED_SIZE)
-                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
                 .addGroup(schedulePanelLayout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
-                    .addComponent(dayViewPanel, javax.swing.GroupLayout.PREFERRED_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.PREFERRED_SIZE)
-                    .addComponent(jScrollPane4, javax.swing.GroupLayout.PREFERRED_SIZE, 363, javax.swing.GroupLayout.PREFERRED_SIZE))
+                    .addGroup(schedulePanelLayout.createSequentialGroup()
+                        .addGap(94, 94, 94)
+                        .addComponent(dayViewPanel, javax.swing.GroupLayout.PREFERRED_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.PREFERRED_SIZE))
+                    .addGroup(schedulePanelLayout.createSequentialGroup()
+                        .addContainerGap()
+                        .addComponent(jScrollPane6, javax.swing.GroupLayout.PREFERRED_SIZE, 452, javax.swing.GroupLayout.PREFERRED_SIZE)))
                 .addContainerGap(javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE))
         );
         schedulePanelLayout.setVerticalGroup(
             schedulePanelLayout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
             .addGroup(schedulePanelLayout.createSequentialGroup()
                 .addComponent(dayViewPanel, javax.swing.GroupLayout.PREFERRED_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.PREFERRED_SIZE)
-                .addGap(4, 4, 4)
-                .addGroup(schedulePanelLayout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING, false)
-                    .addComponent(jScrollPane3, javax.swing.GroupLayout.DEFAULT_SIZE, 298, Short.MAX_VALUE)
-                    .addComponent(jScrollPane4))
-                .addContainerGap(24, Short.MAX_VALUE))
+                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
+                .addComponent(jScrollPane6, javax.swing.GroupLayout.PREFERRED_SIZE, 324, javax.swing.GroupLayout.PREFERRED_SIZE)
+                .addContainerGap(javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE))
         );
 
         myjTabbedPane.addTab("Schedule", schedulePanel);
 
-        recipeNameJList.setModel(new javax.swing.AbstractListModel<String>() {
-            String[] strings = { "Item 1", "Item 2", "Item 3", "Item 4", "Item 5" };
-            public int getSize() { return strings.length; }
-            public String getElementAt(int i) { return strings[i]; }
-        });
-        jScrollPane1.setViewportView(recipeNameJList);
-
-        recipeIngredientsJList.setModel(new javax.swing.AbstractListModel<String>() {
-            String[] strings = { "Item 1", "Item 2", "Item 3", "Item 4", "Item 5" };
-            public int getSize() { return strings.length; }
-            public String getElementAt(int i) { return strings[i]; }
-        });
-        jScrollPane2.setViewportView(recipeIngredientsJList);
+        recipeTable.setModel(new javax.swing.table.DefaultTableModel(
+            new Object [][] {
+                {null, null, null, null},
+                {null, null, null, null},
+                {null, null, null, null},
+                {null, null, null, null}
+            },
+            new String [] {
+                "Title 1", "Title 2", "Title 3", "Title 4"
+            }
+        ));
+        jScrollPane1.setViewportView(recipeTable);
 
         javax.swing.GroupLayout recipesPanelLayout = new javax.swing.GroupLayout(recipesPanel);
         recipesPanel.setLayout(recipesPanelLayout);
         recipesPanelLayout.setHorizontalGroup(
             recipesPanelLayout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
-            .addGroup(recipesPanelLayout.createSequentialGroup()
-                .addContainerGap()
-                .addComponent(jScrollPane1, javax.swing.GroupLayout.PREFERRED_SIZE, 271, javax.swing.GroupLayout.PREFERRED_SIZE)
-                .addGap(18, 18, 18)
-                .addComponent(jScrollPane2, javax.swing.GroupLayout.DEFAULT_SIZE, 160, Short.MAX_VALUE)
-                .addContainerGap())
+            .addComponent(jScrollPane1, javax.swing.GroupLayout.DEFAULT_SIZE, 461, Short.MAX_VALUE)
         );
         recipesPanelLayout.setVerticalGroup(
             recipesPanelLayout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
-            .addGroup(recipesPanelLayout.createSequentialGroup()
-                .addGap(23, 23, 23)
-                .addGroup(recipesPanelLayout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING, false)
-                    .addComponent(jScrollPane1, javax.swing.GroupLayout.DEFAULT_SIZE, 227, Short.MAX_VALUE)
-                    .addComponent(jScrollPane2))
-                .addContainerGap(127, Short.MAX_VALUE))
+            .addGroup(javax.swing.GroupLayout.Alignment.TRAILING, recipesPanelLayout.createSequentialGroup()
+                .addGap(0, 9, Short.MAX_VALUE)
+                .addComponent(jScrollPane1, javax.swing.GroupLayout.PREFERRED_SIZE, 368, javax.swing.GroupLayout.PREFERRED_SIZE))
         );
 
         myjTabbedPane.addTab("Recipes", recipesPanel);
@@ -520,7 +612,7 @@ public class HomeWin extends javax.swing.JFrame {
         jPanel2Layout.setHorizontalGroup(
             jPanel2Layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
             .addComponent(jPanel1, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
-            .addComponent(myjTabbedPane, javax.swing.GroupLayout.PREFERRED_SIZE, 461, javax.swing.GroupLayout.PREFERRED_SIZE)
+            .addComponent(myjTabbedPane, javax.swing.GroupLayout.PREFERRED_SIZE, 0, Short.MAX_VALUE)
         );
         jPanel2Layout.setVerticalGroup(
             jPanel2Layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
@@ -542,10 +634,7 @@ public class HomeWin extends javax.swing.JFrame {
             .addComponent(jPanel2, javax.swing.GroupLayout.PREFERRED_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.PREFERRED_SIZE)
         );
 
-        jMenu1.setText("File");
-        jMenuBar1.add(jMenu1);
-
-        jMenu2.setText("Edit");
+        apiKeyBtn.setText("API");
 
         mnuSpecifyKey.setText("Specify API Key");
         mnuSpecifyKey.addActionListener(new java.awt.event.ActionListener() {
@@ -553,9 +642,29 @@ public class HomeWin extends javax.swing.JFrame {
                 mnuSpecifyKeyActionPerformed(evt);
             }
         });
-        jMenu2.add(mnuSpecifyKey);
+        apiKeyBtn.add(mnuSpecifyKey);
 
-        jMenuBar1.add(jMenu2);
+        jMenuBar1.add(apiKeyBtn);
+
+        dataMenu.setText("Data");
+
+        SaveMenuItem.setText("Save");
+        SaveMenuItem.addActionListener(new java.awt.event.ActionListener() {
+            public void actionPerformed(java.awt.event.ActionEvent evt) {
+                SaveMenuItemActionPerformed(evt);
+            }
+        });
+        dataMenu.add(SaveMenuItem);
+
+        loadMenuItem.setText("Load");
+        loadMenuItem.addActionListener(new java.awt.event.ActionListener() {
+            public void actionPerformed(java.awt.event.ActionEvent evt) {
+                loadMenuItemActionPerformed(evt);
+            }
+        });
+        dataMenu.add(loadMenuItem);
+
+        jMenuBar1.add(dataMenu);
 
         setJMenuBar(jMenuBar1);
 
@@ -563,12 +672,12 @@ public class HomeWin extends javax.swing.JFrame {
         getContentPane().setLayout(layout);
         layout.setHorizontalGroup(
             layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
-            .addGap(0, 461, Short.MAX_VALUE)
+            .addGap(0, 563, Short.MAX_VALUE)
             .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
                 .addGroup(layout.createSequentialGroup()
-                    .addGap(0, 0, Short.MAX_VALUE)
+                    .addGap(0, 51, Short.MAX_VALUE)
                     .addComponent(jPanel3, javax.swing.GroupLayout.PREFERRED_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.PREFERRED_SIZE)
-                    .addGap(0, 0, Short.MAX_VALUE)))
+                    .addGap(0, 51, Short.MAX_VALUE)))
         );
         layout.setVerticalGroup(
             layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
@@ -611,38 +720,45 @@ public class HomeWin extends javax.swing.JFrame {
     private void mnuSpecifyKeyActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_mnuSpecifyKeyActionPerformed
         specifyApiKey();
     }//GEN-LAST:event_mnuSpecifyKeyActionPerformed
+
+    private void loadMenuItemActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_loadMenuItemActionPerformed
+        loadAppData();
+    }//GEN-LAST:event_loadMenuItemActionPerformed
+
+    private void SaveMenuItemActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_SaveMenuItemActionPerformed
+        saveAppData();
+    }//GEN-LAST:event_SaveMenuItemActionPerformed
     
 
     // Variables declaration - do not modify//GEN-BEGIN:variables
+    private javax.swing.JMenuItem SaveMenuItem;
     private javax.swing.JButton addBtn;
+    private javax.swing.JMenu apiKeyBtn;
+    private javax.swing.JMenu dataMenu;
     private javax.swing.JPanel dayViewPanel;
     private javax.swing.JButton financeBtn;
     private javax.swing.JLabel jLabel1;
     private javax.swing.JList<String> jList1;
-    private javax.swing.JMenu jMenu1;
-    private javax.swing.JMenu jMenu2;
     private javax.swing.JMenuBar jMenuBar1;
+    private javax.swing.JMenuItem jMenuItem1;
     private javax.swing.JPanel jPanel1;
     private javax.swing.JPanel jPanel2;
     private javax.swing.JPanel jPanel3;
     private javax.swing.JScrollPane jScrollPane1;
-    private javax.swing.JScrollPane jScrollPane2;
-    private javax.swing.JScrollPane jScrollPane3;
-    private javax.swing.JScrollPane jScrollPane4;
     private javax.swing.JScrollPane jScrollPane5;
+    private javax.swing.JScrollPane jScrollPane6;
+    private javax.swing.JTable jTable1;
     private javax.swing.JPanel learnPanel;
+    private javax.swing.JMenuItem loadMenuItem;
     private javax.swing.JMenuItem mnuSpecifyKey;
     private javax.swing.JTabbedPane myjTabbedPane;
     private javax.swing.JButton programmingBtn;
     private javax.swing.JLabel questionTab;
-    private javax.swing.JList<String> recipeIngredientsJList;
-    private javax.swing.JList<String> recipeNameJList;
+    private javax.swing.JTable recipeTable;
     private javax.swing.JPanel recipesPanel;
-    private javax.swing.JList<String> scheduleJList;
     private javax.swing.JPanel schedulePanel;
     private javax.swing.JButton snowboardingBtn;
     private javax.swing.JPanel taskToDoPanel;
-    private javax.swing.JList<String> timeJList;
     private javax.swing.JLabel toDoListLbl;
     private javax.swing.JLabel weekViewLbl;
     // End of variables declaration//GEN-END:variables
