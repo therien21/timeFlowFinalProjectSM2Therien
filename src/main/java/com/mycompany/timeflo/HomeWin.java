@@ -294,6 +294,19 @@ public class HomeWin extends javax.swing.JFrame {
         JOptionPane.showMessageDialog(this, "Error loading: " + ex.getMessage());
     }
 }
+    private void clearAppData() {
+    java.io.File file = new java.io.File("timeflo-data.ser");
+
+    if (file.exists()) {
+        if (file.delete()) {
+            JOptionPane.showMessageDialog(this, "Saved data cleared.");
+        } else {
+            JOptionPane.showMessageDialog(this, "Could not delete saved data.");
+        }
+    } else {
+        JOptionPane.showMessageDialog(this, "No saved data file found.");
+    }
+}
     private void refreshTaskList(){
         dlmTasks.clear();
         for (Task task : taskManager.getTasks()){
@@ -392,6 +405,7 @@ public class HomeWin extends javax.swing.JFrame {
         dataMenu = new javax.swing.JMenu();
         SaveMenuItem = new javax.swing.JMenuItem();
         loadMenuItem = new javax.swing.JMenuItem();
+        clearMenuItem = new javax.swing.JMenuItem();
 
         jMenuItem1.setText("jMenuItem1");
 
@@ -664,6 +678,14 @@ public class HomeWin extends javax.swing.JFrame {
         });
         dataMenu.add(loadMenuItem);
 
+        clearMenuItem.setText("Clear");
+        clearMenuItem.addActionListener(new java.awt.event.ActionListener() {
+            public void actionPerformed(java.awt.event.ActionEvent evt) {
+                clearMenuItemActionPerformed(evt);
+            }
+        });
+        dataMenu.add(clearMenuItem);
+
         jMenuBar1.add(dataMenu);
 
         setJMenuBar(jMenuBar1);
@@ -728,12 +750,17 @@ public class HomeWin extends javax.swing.JFrame {
     private void SaveMenuItemActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_SaveMenuItemActionPerformed
         saveAppData();
     }//GEN-LAST:event_SaveMenuItemActionPerformed
+
+    private void clearMenuItemActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_clearMenuItemActionPerformed
+        clearAppData();
+    }//GEN-LAST:event_clearMenuItemActionPerformed
     
 
     // Variables declaration - do not modify//GEN-BEGIN:variables
     private javax.swing.JMenuItem SaveMenuItem;
     private javax.swing.JButton addBtn;
     private javax.swing.JMenu apiKeyBtn;
+    private javax.swing.JMenuItem clearMenuItem;
     private javax.swing.JMenu dataMenu;
     private javax.swing.JPanel dayViewPanel;
     private javax.swing.JButton financeBtn;
