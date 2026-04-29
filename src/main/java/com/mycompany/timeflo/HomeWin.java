@@ -6,6 +6,8 @@ package com.mycompany.timeflo;
 
 import com.mycompany.timeflo.model.YouTubeVideo;
 import com.mycompany.timeflo.service.YouTubeClient;
+import com.mycompany.timeflo.service.ClaudeAIService;
+import com.mycompany.timeflo.service.GoogleCalendarService;
 import javax.swing.DefaultListModel;
 import javax.swing.JPanel;
 import javax.swing.JLabel;
@@ -49,7 +51,12 @@ public class HomeWin extends javax.swing.JFrame {
     private RecipeManager recipeManager;
     private AppSaveManager saveManager;
     private final YouTubeClient youtubeClient = new YouTubeClient();
+    private ClaudeAIService claudeService;
+    private GoogleCalendarService calendarService;
+    private static final String PREF_KEY_CLAUDE = "TIMEFLO_CLAUDE_API_KEY";
     private String apiKey;
+    private static final String PREF_KEY_CALENDAR = "TIMEFLO_CALENDAR_API_KEY";
+    private String calendarApiKey;
     private Preferences pref;
     private static final String PREF_KEY_FOR_APIKEY = "TIMEFLO_YOUTUBE_API_KEY";
     
@@ -132,6 +139,154 @@ public class HomeWin extends javax.swing.JFrame {
            
         }
     }
+private void showJournalPopup() {
+    javax.swing.JTextField moodField    = new javax.swing.JTextField(25);
+    javax.swing.JTextField goalField    = new javax.swing.JTextField(25);
+    javax.swing.JTextField mealField    = new javax.swing.JTextField(25);
+    javax.swing.JTextField workoutField = new javax.swing.JTextField(25);
+
+    javax.swing.JPanel panel = new javax.swing.JPanel();
+    panel.setLayout(new javax.swing.BoxLayout(panel, javax.swing.BoxLayout.Y_AXIS));
+    panel.add(new javax.swing.JLabel("Good morning! How are you feeling today?"));
+    panel.add(moodField);
+    panel.add(new javax.swing.JLabel("What's your #1 priority today?"));
+    panel.add(goalField);
+    panel.add(new javax.swing.JLabel("Are you cooking or eating out today?"));
+    panel.add(mealField);
+    panel.add(new javax.swing.JLabel("Any workout planned?"));
+    panel.add(workoutField);
+
+    int result = JOptionPane.showConfirmDialog(
+        this, panel, "Daily Journal — TimeFlow",
+        JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE
+    );
+
+    if (result == JOptionPane.OK_OPTION) {
+        String journalText =
+            "Mood: "     + moodField.getText().trim()    + "\n" +
+            "Goal: "     + goalField.getText().trim()     + "\n" +
+            "Meal plan: "+ mealField.getText().trim()     + "\n" +
+            "Workout: "  + workoutField.getText().trim();
+
+        StringBuilder scheduleText = new StringBuilder();
+        for (ScheduleItem item : scheduleItems) {
+            if (!"Empty".equals(item.getEventName())) {
+                scheduleText.append(item.getTime())
+                            .append(" - ").append(item.getEventName())
+                            .append(" (").append(item.getType()).append(")\n");
+            }
+        }
+        if (scheduleText.length() == 0) {
+            scheduleText.append("No events scheduled yet.");
+        }
+
+        final String finalSchedule = scheduleText.toString();
+        final String finalJournal  = journalText;
+
+        if (!claudeService.hasApiKey()) {
+            String key = JOptionPane.showInputDialog(this,
+                "Paste your Claude API key to get AI recommendations:");
+            if (key != null && !key.trim().isEmpty()) {
+                claudeService.setApiKey(key.trim());
+                pref.put(PREF_KEY_CLAUDE, key.trim());
+            }
+        }
+
+        new SwingWorker<String, Void>() {
+            @Override
+            protected String doInBackground() throws Exception {
+                return claudeService.getDailyRecommendation(finalSchedule, finalJournal);
+            }
+            @Override
+            protected void done() {
+                try {
+                    String recommendation = get();
+                    JOptionPane.showMessageDialog(HomeWin.this,
+                        "<html><body style='width:300px'><b>Your AI Daily Plan:</b><br><br>"
+                        + recommendation.replace("\n", "<br>") + "</body></html>",
+                        "TimeFlow AI Recommendation",
+                        JOptionPane.INFORMATION_MESSAGE
+                    );
+                } catch (Exception ex) {
+                    JOptionPane.showMessageDialog(HomeWin.this,
+                        "AI recommendation unavailable right now.\n" +
+                        "Tip: Stay focused on your #1 priority today!",
+                        "TimeFlow", JOptionPane.INFORMATION_MESSAGE
+                    );
+                }
+            }
+        }.execute();
+    }
+}
+
+private void showGoogleCalendarDialog() {
+    String token = JOptionPane.showInputDialog(this,
+        "Enter your Google Calendar access token\n" +
+        "(Demo mode: type anything to simulate a connection):");
+
+    if (token == null || token.trim().isEmpty()) return;
+
+    boolean connected = calendarService.connect(token);
+    if (!connected) {
+        JOptionPane.showMessageDialog(this, "Connection failed.");
+        return;
+    }
+
+    java.util.List<GoogleCalendarService.CalendarEvent> events =
+        calendarService.fetchTodaysEvents(calendarApiKey != null ? calendarApiKey : "");
+
+    StringBuilder sb = new StringBuilder("Today's Google Calendar events:\n\n");
+    for (GoogleCalendarService.CalendarEvent e : events) {
+        sb.append("  ").append(e.toString()).append("\n");
+    }
+    sb.append("\nImport these into your schedule?");
+
+    int choice = JOptionPane.showConfirmDialog(this,
+        sb.toString(), "Google Calendar Import",
+        JOptionPane.YES_NO_OPTION, JOptionPane.PLAIN_MESSAGE);
+
+    if (choice == JOptionPane.YES_OPTION) {
+        for (GoogleCalendarService.CalendarEvent event : events) {
+            for (ScheduleItem item : scheduleItems) {
+                if (item.getTime().equals(event.time)) {
+                    item.setEventName(event.title);
+                    item.setType(event.type);
+                    item.setNotes("Imported from Google Calendar");
+                    break;
+                }
+            }
+        }
+        scheduleTableModel.fireTableDataChanged();
+        myjTabbedPane.setSelectedIndex(1);
+        JOptionPane.showMessageDialog(this,
+            events.size() + " events imported into your schedule!");
+    }
+}
+
+private void deleteSelectedTask() {
+    int selectedIndex = jList1.getSelectedIndex();
+    if (selectedIndex == -1) {
+        JOptionPane.showMessageDialog(this, "Select a task first, then click Delete.");
+        return;
+    }
+    int confirm = JOptionPane.showConfirmDialog(this,
+        "Delete task: \"" + dlmTasks.getElementAt(selectedIndex) + "\"?",
+        "Confirm Delete", JOptionPane.YES_NO_OPTION);
+    if (confirm == JOptionPane.YES_OPTION) {
+        taskManager.removeTask(taskManager.getTasks().get(selectedIndex));
+        refreshTaskList();
+    }
+}
+
+private void completeSelectedTask() {
+    int selectedIndex = jList1.getSelectedIndex();
+    if (selectedIndex == -1) {
+        JOptionPane.showMessageDialog(this, "Select a task first.");
+        return;
+    }
+    taskManager.getTasks().get(selectedIndex).markComplete();
+    refreshTaskList();
+}
     private void showRecipePopup(){
         JTextField nameField = new JTextField(20);
         JTextField ingredientsField = new JTextField(25);
@@ -319,6 +474,90 @@ public class HomeWin extends javax.swing.JFrame {
     private void refreshRecipeList(){
         recipeTableModel.fireTableDataChanged();    
     }
+    private void suggestForRow(int row) {
+    ScheduleItem item = scheduleItems.get(row);
+
+    if (!claudeService.hasApiKey()) {
+        String key = JOptionPane.showInputDialog(this, "Paste your Claude API key:");
+        if (key != null && !key.trim().isEmpty()) {
+            claudeService.setApiKey(key.trim());
+            pref.put(PREF_KEY_CLAUDE, key.trim());
+        }
+    }
+
+    // Build context
+    StringBuilder scheduleText = new StringBuilder();
+    for (ScheduleItem s : scheduleItems) {
+        scheduleText.append(s.getTime()).append(" - ")
+                    .append(s.getEventName()).append(" (")
+                    .append(s.getType()).append(")\n");
+    }
+
+    StringBuilder recipeText = new StringBuilder();
+    for (Recipe r : recipeItems) {
+        recipeText.append("- ").append(r.getName())
+                  .append(" (").append(r.getCategory()).append(")\n");
+    }
+
+    final String time          = item.getTime();
+    final String finalSchedule = scheduleText.toString();
+    final String finalRecipes  = recipeText.toString();
+
+    new SwingWorker<String, Void>() {
+        @Override
+        protected String doInBackground() throws Exception {
+            String prompt =
+                "You are a scheduling assistant for a college student.\n\n" +
+                "Full schedule:\n" + finalSchedule + "\n" +
+                "Available recipes:\n" + finalRecipes + "\n\n" +
+                "The user clicked on the " + time + " time slot. " +
+                "Suggest ONE specific activity for this slot. " +
+                "Reply in exactly this format:\n" +
+                "EVENT: [name] | TYPE: [School/Meal/Workout/Personal/Work/Open] | NOTE: [short note]\n" +
+                "Be specific. If suggesting a meal, pick from the recipe list.";
+            return claudeService.getDailyRecommendation(finalSchedule, prompt);
+        }
+        @Override
+        protected void done() {
+            try {
+                String suggestion = get();
+                int choice = JOptionPane.showConfirmDialog(HomeWin.this,
+                    "<html><body style='width:300px'>" +
+                    "<b>AI suggestion for " + time + ":</b><br><br>" +
+                    suggestion.replace("\n", "<br>") +
+                    "<br><br>Apply this?</body></html>",
+                    "AI Suggestion",
+                    JOptionPane.YES_NO_OPTION,
+                    JOptionPane.PLAIN_MESSAGE
+                );
+                if (choice == JOptionPane.YES_OPTION) {
+                    // Parse and apply
+                    try {
+                        String event = suggestion.contains("EVENT:") ?
+                            suggestion.split("EVENT:")[1].split("\\|")[0].trim() : suggestion;
+                        String type = suggestion.contains("TYPE:") ?
+                            suggestion.split("TYPE:")[1].split("\\|")[0].trim() : "Open";
+                        String note = suggestion.contains("NOTE:") ?
+                            suggestion.split("NOTE:")[1].trim() : "";
+                        item.setEventName(event);
+                        item.setType(type);
+                        item.setNotes(note);
+                        scheduleTableModel.fireTableRowsUpdated(row, row);
+                    } catch (Exception ex) {
+                        // fallback — just put the raw suggestion
+                        item.setEventName(suggestion.substring(0, 
+                            Math.min(suggestion.length(), 30)));
+                        scheduleTableModel.fireTableRowsUpdated(row, row);
+                    }
+                }
+            } catch (Exception ex) {
+                JOptionPane.showMessageDialog(HomeWin.this,
+                    "AI suggestion unavailable.", "TimeFlow",
+                    JOptionPane.INFORMATION_MESSAGE);
+            }
+        }
+    }.execute();
+}
     public HomeWin() {
         initComponents();
         saveManager = new AppSaveManager();
@@ -332,6 +571,10 @@ public class HomeWin extends javax.swing.JFrame {
         } else{
             JOptionPane.showMessageDialog(this, "Loaded your API key.");
         }
+        calendarApiKey = pref.get(PREF_KEY_CALENDAR, null);
+        calendarService = new GoogleCalendarService();
+        String claudeKey = pref.get(PREF_KEY_CLAUDE, null);
+        claudeService = new ClaudeAIService(claudeKey != null ? claudeKey : "");
         scheduleItems = new ArrayList<>();
         String[] times = {"8:00", "9:00","10:00","11:00","12:00", "1:00","2:00","3:00","4:00","5:00","6:00","7:00","8:00"};
         for (String t : times){
@@ -345,6 +588,14 @@ public class HomeWin extends javax.swing.JFrame {
         jTable1.getColumnModel().getColumn(1).setPreferredWidth(140); //Event
         jTable1.getColumnModel().getColumn(2).setPreferredWidth(90); //Type
         jTable1.getColumnModel().getColumn(3).setPreferredWidth(180); //Notes
+        jTable1.getColumnModel().getColumn(4).setPreferredWidth(70);
+        jTable1.getColumnModel().getColumn(4).setCellRenderer(
+            new com.mycompany.timeflo.model.ButtonRenderer());
+        jTable1.getColumnModel().getColumn(4).setCellEditor(
+            new com.mycompany.timeflo.model.ButtonEditor(evt -> {
+                int row = Integer.parseInt(evt.getActionCommand());
+                suggestForRow(row);
+            }));
         recipeItems = recipeManager.getRecipes();
         recipeManager.addRecipe("Chicken Bowl", "Chicken, rice, spinach", "20 min", "Dinner", "High protein");
         recipeManager.addRecipe("Oatmeal", "Oats, banana, peanut butter", "5 min", "Breakfast", "Quick meal");
@@ -365,6 +616,7 @@ public class HomeWin extends javax.swing.JFrame {
         taskManager.addTask("Study for quiz");
         refreshTaskList();
         jList1.setModel(dlmTasks);
+
     }
     /**
      * This method is called from within the constructor to initialize the form.
@@ -376,11 +628,13 @@ public class HomeWin extends javax.swing.JFrame {
     private void initComponents() {
 
         jMenuItem1 = new javax.swing.JMenuItem();
+        jLabel2 = new javax.swing.JLabel();
         jPanel3 = new javax.swing.JPanel();
         jPanel2 = new javax.swing.JPanel();
         jPanel1 = new javax.swing.JPanel();
         jLabel1 = new javax.swing.JLabel();
         addBtn = new javax.swing.JButton();
+        jButton2 = new javax.swing.JButton();
         myjTabbedPane = new javax.swing.JTabbedPane();
         taskToDoPanel = new javax.swing.JPanel();
         jScrollPane5 = new javax.swing.JScrollPane();
@@ -399,15 +653,19 @@ public class HomeWin extends javax.swing.JFrame {
         programmingBtn = new javax.swing.JButton();
         snowboardingBtn = new javax.swing.JButton();
         financeBtn = new javax.swing.JButton();
+        jButton1 = new javax.swing.JButton();
         jMenuBar1 = new javax.swing.JMenuBar();
         apiKeyBtn = new javax.swing.JMenu();
         mnuSpecifyKey = new javax.swing.JMenuItem();
+        jMenuItem2 = new javax.swing.JMenuItem();
         dataMenu = new javax.swing.JMenu();
         SaveMenuItem = new javax.swing.JMenuItem();
         loadMenuItem = new javax.swing.JMenuItem();
         clearMenuItem = new javax.swing.JMenuItem();
 
         jMenuItem1.setText("jMenuItem1");
+
+        jLabel2.setText("jLabel2");
 
         setDefaultCloseOperation(javax.swing.WindowConstants.EXIT_ON_CLOSE);
 
@@ -423,13 +681,24 @@ public class HomeWin extends javax.swing.JFrame {
             }
         });
 
+        jButton2.setFont(new java.awt.Font("Segoe UI", 1, 14)); // NOI18N
+        jButton2.setText("Journal");
+        jButton2.setPreferredSize(new java.awt.Dimension(55, 55));
+        jButton2.addActionListener(new java.awt.event.ActionListener() {
+            public void actionPerformed(java.awt.event.ActionEvent evt) {
+                jButton2ActionPerformed(evt);
+            }
+        });
+
         javax.swing.GroupLayout jPanel1Layout = new javax.swing.GroupLayout(jPanel1);
         jPanel1.setLayout(jPanel1Layout);
         jPanel1Layout.setHorizontalGroup(
             jPanel1Layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
             .addGroup(jPanel1Layout.createSequentialGroup()
                 .addComponent(jLabel1, javax.swing.GroupLayout.PREFERRED_SIZE, 182, javax.swing.GroupLayout.PREFERRED_SIZE)
-                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED, 173, Short.MAX_VALUE)
+                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
+                .addComponent(jButton2, javax.swing.GroupLayout.PREFERRED_SIZE, 95, javax.swing.GroupLayout.PREFERRED_SIZE)
+                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
                 .addComponent(addBtn, javax.swing.GroupLayout.PREFERRED_SIZE, 100, javax.swing.GroupLayout.PREFERRED_SIZE)
                 .addContainerGap())
         );
@@ -438,8 +707,10 @@ public class HomeWin extends javax.swing.JFrame {
             .addGroup(javax.swing.GroupLayout.Alignment.TRAILING, jPanel1Layout.createSequentialGroup()
                 .addContainerGap(javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
                 .addGroup(jPanel1Layout.createParallelGroup(javax.swing.GroupLayout.Alignment.TRAILING, false)
-                    .addComponent(jLabel1, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
-                    .addComponent(addBtn, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE))
+                    .addComponent(jButton2, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
+                    .addGroup(jPanel1Layout.createParallelGroup(javax.swing.GroupLayout.Alignment.TRAILING, false)
+                        .addComponent(jLabel1, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
+                        .addComponent(addBtn, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)))
                 .addGap(112, 112, 112))
         );
 
@@ -463,7 +734,7 @@ public class HomeWin extends javax.swing.JFrame {
                     .addComponent(jScrollPane5)
                     .addGroup(taskToDoPanelLayout.createSequentialGroup()
                         .addComponent(toDoListLbl)
-                        .addGap(0, 367, Short.MAX_VALUE)))
+                        .addGap(0, 684, Short.MAX_VALUE)))
                 .addContainerGap())
         );
         taskToDoPanelLayout.setVerticalGroup(
@@ -516,14 +787,12 @@ public class HomeWin extends javax.swing.JFrame {
         schedulePanelLayout.setHorizontalGroup(
             schedulePanelLayout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
             .addGroup(schedulePanelLayout.createSequentialGroup()
-                .addGroup(schedulePanelLayout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
-                    .addGroup(schedulePanelLayout.createSequentialGroup()
-                        .addGap(94, 94, 94)
-                        .addComponent(dayViewPanel, javax.swing.GroupLayout.PREFERRED_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.PREFERRED_SIZE))
-                    .addGroup(schedulePanelLayout.createSequentialGroup()
-                        .addContainerGap()
-                        .addComponent(jScrollPane6, javax.swing.GroupLayout.PREFERRED_SIZE, 452, javax.swing.GroupLayout.PREFERRED_SIZE)))
+                .addGap(94, 94, 94)
+                .addComponent(dayViewPanel, javax.swing.GroupLayout.PREFERRED_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.PREFERRED_SIZE)
                 .addContainerGap(javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE))
+            .addGroup(schedulePanelLayout.createSequentialGroup()
+                .addContainerGap()
+                .addComponent(jScrollPane6, javax.swing.GroupLayout.DEFAULT_SIZE, 772, Short.MAX_VALUE))
         );
         schedulePanelLayout.setVerticalGroup(
             schedulePanelLayout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
@@ -553,7 +822,7 @@ public class HomeWin extends javax.swing.JFrame {
         recipesPanel.setLayout(recipesPanelLayout);
         recipesPanelLayout.setHorizontalGroup(
             recipesPanelLayout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
-            .addComponent(jScrollPane1, javax.swing.GroupLayout.DEFAULT_SIZE, 461, Short.MAX_VALUE)
+            .addComponent(jScrollPane1, javax.swing.GroupLayout.DEFAULT_SIZE, 778, Short.MAX_VALUE)
         );
         recipesPanelLayout.setVerticalGroup(
             recipesPanelLayout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
@@ -603,7 +872,7 @@ public class HomeWin extends javax.swing.JFrame {
                         .addComponent(financeBtn, javax.swing.GroupLayout.Alignment.LEADING, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
                         .addComponent(programmingBtn, javax.swing.GroupLayout.Alignment.LEADING, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
                         .addComponent(snowboardingBtn, javax.swing.GroupLayout.Alignment.LEADING, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)))
-                .addContainerGap(40, Short.MAX_VALUE))
+                .addContainerGap(357, Short.MAX_VALUE))
         );
         learnPanelLayout.setVerticalGroup(
             learnPanelLayout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
@@ -626,7 +895,10 @@ public class HomeWin extends javax.swing.JFrame {
         jPanel2Layout.setHorizontalGroup(
             jPanel2Layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
             .addComponent(jPanel1, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
-            .addComponent(myjTabbedPane, javax.swing.GroupLayout.PREFERRED_SIZE, 0, Short.MAX_VALUE)
+            .addGroup(javax.swing.GroupLayout.Alignment.TRAILING, jPanel2Layout.createSequentialGroup()
+                .addContainerGap(javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
+                .addComponent(myjTabbedPane, javax.swing.GroupLayout.PREFERRED_SIZE, 778, javax.swing.GroupLayout.PREFERRED_SIZE)
+                .addContainerGap())
         );
         jPanel2Layout.setVerticalGroup(
             jPanel2Layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
@@ -648,6 +920,8 @@ public class HomeWin extends javax.swing.JFrame {
             .addComponent(jPanel2, javax.swing.GroupLayout.PREFERRED_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.PREFERRED_SIZE)
         );
 
+        jButton1.setText("jButton1");
+
         apiKeyBtn.setText("API");
 
         mnuSpecifyKey.setText("Specify API Key");
@@ -657,6 +931,14 @@ public class HomeWin extends javax.swing.JFrame {
             }
         });
         apiKeyBtn.add(mnuSpecifyKey);
+
+        jMenuItem2.setText("Connect Google Calendar");
+        jMenuItem2.addActionListener(new java.awt.event.ActionListener() {
+            public void actionPerformed(java.awt.event.ActionEvent evt) {
+                jMenuItem2ActionPerformed(evt);
+            }
+        });
+        apiKeyBtn.add(jMenuItem2);
 
         jMenuBar1.add(apiKeyBtn);
 
@@ -694,37 +976,45 @@ public class HomeWin extends javax.swing.JFrame {
         getContentPane().setLayout(layout);
         layout.setHorizontalGroup(
             layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
-            .addGap(0, 563, Short.MAX_VALUE)
+            .addGap(0, 1357, Short.MAX_VALUE)
             .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
                 .addGroup(layout.createSequentialGroup()
-                    .addGap(0, 51, Short.MAX_VALUE)
+                    .addGap(0, 284, Short.MAX_VALUE)
                     .addComponent(jPanel3, javax.swing.GroupLayout.PREFERRED_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.PREFERRED_SIZE)
-                    .addGap(0, 51, Short.MAX_VALUE)))
+                    .addGap(0, 283, Short.MAX_VALUE)))
         );
         layout.setVerticalGroup(
             layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
-            .addGap(0, 497, Short.MAX_VALUE)
+            .addGap(0, 690, Short.MAX_VALUE)
             .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
                 .addGroup(layout.createSequentialGroup()
-                    .addGap(0, 0, Short.MAX_VALUE)
+                    .addGap(0, 96, Short.MAX_VALUE)
                     .addComponent(jPanel3, javax.swing.GroupLayout.PREFERRED_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.PREFERRED_SIZE)
-                    .addGap(0, 0, Short.MAX_VALUE)))
+                    .addGap(0, 97, Short.MAX_VALUE)))
         );
 
         pack();
     }// </editor-fold>//GEN-END:initComponents
-
-    private void addBtnActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_addBtnActionPerformed
-        int selectedTab = myjTabbedPane.getSelectedIndex();
-        if (selectedTab == 0){
-            showTaskPopup();
-        } else if (selectedTab == 1){
-            showSchedulePopup();
-        } else if (selectedTab == 2){
-            showRecipePopup();
-        } else if (selectedTab == 3){
-            showLearnPopup();
-        }
+                                     
+        private void addBtnActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_addBtnActionPerformed
+            int selectedTab = myjTabbedPane.getSelectedIndex();
+            if (selectedTab == 0) {
+                String[] options = {"Add Task", "Delete Selected", "Mark Complete"};
+                int choice = JOptionPane.showOptionDialog(this,
+                    "What would you like to do?", "Tasks",
+                    JOptionPane.DEFAULT_OPTION, JOptionPane.PLAIN_MESSAGE,
+                    null, options, options[0]);
+                if (choice == 0) showTaskPopup();
+                else if (choice == 1) deleteSelectedTask();
+                else if (choice == 2) completeSelectedTask();
+            } else if (selectedTab == 1) {
+                showSchedulePopup();
+            } else if (selectedTab == 2) {
+                showRecipePopup();
+            } else if (selectedTab == 3) {
+                showLearnPopup();  
+            
+    }                                      
     }//GEN-LAST:event_addBtnActionPerformed
 
     private void programmingBtnActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_programmingBtnActionPerformed
@@ -754,7 +1044,14 @@ public class HomeWin extends javax.swing.JFrame {
     private void clearMenuItemActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_clearMenuItemActionPerformed
         clearAppData();
     }//GEN-LAST:event_clearMenuItemActionPerformed
-    
+
+    private void jMenuItem2ActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_jMenuItem2ActionPerformed
+        showGoogleCalendarDialog();
+    }//GEN-LAST:event_jMenuItem2ActionPerformed
+
+    private void jButton2ActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_jButton2ActionPerformed
+        showJournalPopup();
+    }//GEN-LAST:event_jButton2ActionPerformed
 
     // Variables declaration - do not modify//GEN-BEGIN:variables
     private javax.swing.JMenuItem SaveMenuItem;
@@ -764,10 +1061,14 @@ public class HomeWin extends javax.swing.JFrame {
     private javax.swing.JMenu dataMenu;
     private javax.swing.JPanel dayViewPanel;
     private javax.swing.JButton financeBtn;
+    private javax.swing.JButton jButton1;
+    private javax.swing.JButton jButton2;
     private javax.swing.JLabel jLabel1;
+    private javax.swing.JLabel jLabel2;
     private javax.swing.JList<String> jList1;
     private javax.swing.JMenuBar jMenuBar1;
     private javax.swing.JMenuItem jMenuItem1;
+    private javax.swing.JMenuItem jMenuItem2;
     private javax.swing.JPanel jPanel1;
     private javax.swing.JPanel jPanel2;
     private javax.swing.JPanel jPanel3;
